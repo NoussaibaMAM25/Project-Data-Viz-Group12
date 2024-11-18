@@ -1,0 +1,1099 @@
+---
+title: "morven_code"
+output: html_document
+date: "2024-11-13"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Load necessary libraries
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(echarts4r)
+library(rworldmap)
+```
+
+```{r}
+# Import data
+athlete_events <- read.csv('athlete_events.csv', stringsAsFactors = FALSE)
+noc_regions <- read.csv('noc_regions.csv', stringsAsFactors = FALSE)
+
+# Data Cleaning
+
+# View the dimensions of athlete_events
+dim(athlete_events)
+
+# Check for missing values in each column of athlete_events
+colSums(is.na(athlete_events))
+
+# Fill missing values in 'Medal' column with 'DNW' (Did Not Win)
+athlete_events$Medal[is.na(athlete_events$Medal)] <- 'DNW'
+
+# Confirm that there are no more missing values in 'Medal' column
+sum(is.na(athlete_events$Medal))
+
+# Check for duplicate rows in athlete_events
+sum(duplicated(athlete_events))
+
+# Remove duplicate rows as they are not meaningful in this dataset
+athlete_events <- athlete_events[!duplicated(athlete_events), ]
+
+# View the number of unique values in each column
+sapply(athlete_events, function(x) length(unique(x)))
+
+# Examine the first two rows of noc_regions
+head(noc_regions, 2)
+
+# View the number of unique values in each column of noc_regions
+sapply(noc_regions, function(x) length(unique(x)))
+
+# View the dimensions of noc_regions
+dim(noc_regions)
+
+# Check for duplicate rows in noc_regions
+sum(duplicated(noc_regions))
+
+# Get summary information about noc_regions
+str(noc_regions)
+
+# Find NOCs present in noc_regions but not in athlete_events
+setdiff(unique(noc_regions$NOC), unique(athlete_events$NOC))
+
+# Find NOCs present in athlete_events but not in noc_regions
+setdiff(unique(athlete_events$NOC), unique(noc_regions$NOC))
+
+# Check for entries in noc_regions where NOC is 'SIN'
+subset(noc_regions, NOC == 'SIN')
+
+# Check for entries in athlete_events where NOC is 'SGP' and display the first row
+head(subset(athlete_events, NOC == 'SGP'), 1)
+
+# Merge datasets on 'NOC' column with a left join
+olympic_df <- merge(athlete_events, noc_regions, by = 'NOC', all.x = TRUE)
+
+# View the first row of the merged dataset
+head(olympic_df, 1)
+
+# Remove the 'notes' column as it's not needed
+olympic_df$notes <- NULL
+
+# Rename 'region' column to 'Country' to maintain consistency
+colnames(olympic_df)[colnames(olympic_df) == 'region'] <- 'Country'
+
+# View the first row after modifications
+head(olympic_df, 1)
+
+# Identify rows where 'Country' is missing
+missing_country <- unique(olympic_df[is.na(olympic_df$Country), c('Team', 'NOC')])
+print(missing_country)
+
+# Check why some 'NOC's did not match during the merge
+subset(noc_regions, NOC %in% c('ROT', 'UNK', 'TUV'))
+
+# Replace missing 'Country' values based on 'NOC' codes
+olympic_df$Country <- ifelse(olympic_df$NOC == 'SGP', 'Singapore', olympic_df$Country)
+olympic_df$Country <- ifelse(olympic_df$NOC == 'ROT', 'Refugee Olympic Team', olympic_df$Country)
+olympic_df$Country <- ifelse(olympic_df$NOC == 'TUV', 'Tuvalu', olympic_df$Country)
+olympic_df$Country <- ifelse(olympic_df$NOC == 'UNK', 'Unknown', olympic_df$Country)
+
+# Remove the 'Team' column as it's no longer needed
+olympic_df$Team <- NULL
+
+# View the first row after final modifications
+head(olympic_df, 1)
+
+# Replace empty strings and NA in 'Medal' column with 'DNW' (Did Not Win)
+olympic_df$Medal[olympic_df$Medal == "" | is.na(olympic_df$Medal)] <- 'DNW'
+# Check unique values again
+unique_medals <- unique(olympic_df$Medal)
+print(unique_medals)
+
+# Create medal_data
+medal_data <- olympic_df %>%
+  # Exclude 'DNW' entries
+  filter(Medal %in% c('Gold', 'Silver', 'Bronze')) %>%
+  group_by(Year, Season, Country, Medal) %>%
+  summarise(Nums = n_distinct(Event)) %>%
+  ungroup() %>%
+  arrange(Year)
+medal_stat <- function(year, season = 'Summer') {
+  t_data <- medal_data %>%
+    filter(Year <= year, Season == season) %>%
+    group_by(Country, Medal) %>%
+    summarise(Nums = sum(Nums)) %>%
+    ungroup()
+  
+  # Pivot Medal into columns (Gold, Silver, Bronze)
+  t_data_wide <- t_data %>%
+    pivot_wider(names_from = Medal, values_from = Nums, values_fill = list(Nums = 0))
+  
+  # Ensure 'Gold', 'Silver', 'Bronze' columns exist
+  medal_levels <- c('Gold', 'Silver', 'Bronze')
+  for (medal in medal_levels) {
+    if (!(medal %in% names(t_data_wide))) {
+      t_data_wide[[medal]] <- 0
+    }
+  }
+  
+  # Convert medal counts to integers
+  t_data_wide <- t_data_wide %>%
+    mutate_at(vars(Gold, Silver, Bronze), ~ as.integer(.))
+  
+  # Compute total medals and select top 20 countries
+  t_data_top <- t_data_wide %>%
+    mutate(Total = Gold + Silver + Bronze) %>%
+    arrange(desc(Total)) %>%
+    slice(1:20) %>%
+    select(Country, Gold, Silver, Bronze)
+  
+  return(t_data_top)
+}
+```
+```{r}
+# =======================================================
+# 1. Load Necessary Libraries
+# =======================================================
+library(dplyr)
+library(ggplot2)
+library(summarytools)
+library(caret)
+library(randomForest)
+library(pROC)
+library(tidyr)
+library(viridis)
+
+# =======================================================
+# 2. Read and Explore the Dataset
+# =======================================================
+athlete_data <- read.csv("athlete_events.csv")
+noc_data <- read.csv("noc_regions.csv")
+
+# Display the structure of the dataset
+str(athlete_data)
+
+# Display the first few rows
+head(athlete_data)
+
+# Provide a comprehensive summary of the dataset
+dfSummary(athlete_data, headings = FALSE, method = "render")
+
+# =======================================================
+# 3. Basic Statistical Analysis
+# =======================================================
+# Number of rows and columns
+cat("Number of rows:", nrow(athlete_data), "\n")
+cat("Number of columns:", ncol(athlete_data), "\n")
+
+# Summary of each column
+summary(athlete_data)
+
+# =======================================================
+# 4. Distribution of Key Numeric Variables
+# =======================================================
+# Distribution of Age
+ggplot(athlete_data, aes(x = Age)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "white") +
+  labs(title = "Distribution of Athletes' Ages", x = "Age", y = "Count") +
+  theme_minimal()
+
+# Distribution of Height
+ggplot(athlete_data, aes(x = Height)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "white") +
+  labs(title = "Distribution of Athletes' Heights", x = "Height (cm)", y = "Count") +
+  theme_minimal()
+
+# Distribution of Weight
+ggplot(athlete_data, aes(x = Weight)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "white") +
+  labs(title = "Distribution of Athletes' Weights", x = "Weight (kg)", y = "Count") +
+  theme_minimal()
+
+# =======================================================
+# 5. Distribution of Key Categorical Variables
+# =======================================================
+# Distribution of Sex
+ggplot(athlete_data, aes(x = Sex)) +
+  geom_bar(fill = "steelblue") +
+  labs(title = "Distribution of Athletes' Sex", x = "Sex", y = "Count") +
+  theme_minimal()
+
+# Distribution of Season
+ggplot(athlete_data, aes(x = Season)) +
+  geom_bar(fill = "steelblue") +
+  labs(title = "Distribution of Athletes by Season", x = "Season", y = "Count") +
+  theme_minimal()
+
+# Distribution of Medals
+ggplot(athlete_data, aes(x = Medal)) +
+  geom_bar(fill = "steelblue") +
+  labs(title = "Distribution of Medals", x = "Medal", y = "Count") +
+  theme_minimal()
+
+# =======================================================
+# 6. Missing Values Analysis
+# =======================================================
+colSums(is.na(athlete_data))
+
+# =======================================================
+# 7. Athlete Participation Over Time
+# =======================================================
+athletes_per_year <- athlete_data %>%
+  group_by(Year) %>%
+  summarise(Athlete_Count = n_distinct(ID))
+
+ggplot(athletes_per_year, aes(x = Year, y = Athlete_Count)) +
+  geom_line(color = "steelblue") +
+  labs(title = "Number of Athletes per Year", x = "Year", y = "Number of Athletes") +
+  theme_minimal()
+
+# =======================================================
+# 8. Merge Data with noc_regions and Analyze Medal Counts by Country
+# =======================================================
+athlete_data <- merge(athlete_data, noc_data, by = "NOC", all.x = TRUE)
+country_medals <- athlete_data %>%
+  filter(!is.na(Medal)) %>%
+  group_by(region) %>%
+  summarise(Total_Medals = n()) %>%
+  arrange(desc(Total_Medals)) %>%
+  filter(!is.na(region)) %>%
+  head(20)
+
+ggplot(country_medals, aes(x = reorder(region, -Total_Medals), y = Total_Medals)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  coord_flip() +
+  labs(title = "Top 20 Countries by Total Medals", x = "Country/Region", y = "Total Medals") +
+  theme_minimal()
+
+# =======================================================
+# 9. Exploring Differences in Medal Counts by Gender
+# =======================================================
+gender_medals <- athlete_data %>%
+  filter(!is.na(Medal), Sex %in% c("M", "F")) %>%
+  group_by(Sex, Medal) %>%
+  summarise(Count = n(), .groups = "drop") %>%
+  mutate(
+    Sex = ifelse(Sex == "M", "Male", "Female"),
+    Medal = factor(Medal, levels = c("Gold", "Silver", "Bronze"))
+  ) %>%
+  # Exclude athletes who did not win a medal
+  filter(!is.na(Medal))
+
+ggplot(gender_medals, aes(x = Medal, y = Count, fill = Sex, label = Count)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.7), width = 0.6) +
+  geom_text(position = position_dodge(width = 0.7), vjust = -0.5, size = 3.5) +
+  scale_fill_manual(values = c("Male" = "#4E79A7", "Female" = "#F28E2B")) +
+  labs(title = "Medal Counts by Gender", x = "Medal Type", y = "Number of Medals", fill = "Gender") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14),
+    legend.title = element_text(size = 14),
+    legend.text = element_text(size = 12)
+  )
+
+# =======================================================
+# 10. Identify a Valuable Question and Prepare for Statistical Modeling
+# =======================================================
+# Question: Can we predict whether an athlete will win a medal based on their personal characteristics and the event they participate in?
+
+# Data Preparation
+athlete_data_model <- athlete_data %>%
+  select(Sex, Age, Height, Weight, Sport, Event, Medal) %>%
+  filter(!is.na(Age), !is.na(Height), !is.na(Weight), !is.na(Sport), !is.na(Event)) %>%
+  mutate(
+    Medal_Won = ifelse(is.na(Medal), 0, 1),
+    Sex = ifelse(Sex == "M", 1, 0)
+  ) %>%
+  select(Medal_Won, Sex, Age, Height, Weight, Sport, Event) %>%
+  # Convert categorical variables to factors
+  mutate(
+    Sport = as.factor(Sport),
+    Event = as.factor(Event),
+    Medal_Won = as.factor(Medal_Won)
+  )
+
+# Create dummy variables using model.matrix for categorical features
+data_dummies <- model.matrix(Medal_Won ~ ., data = athlete_data_model, contrasts.arg = list(Sport = contrasts(athlete_data_model$Sport, contrasts = FALSE), Event = contrasts(athlete_data_model$Event, contrasts = FALSE)))[, -1]
+data_dummies <- as.data.frame(data_dummies)
+data_dummies$Medal_Won <- athlete_data_model$Medal_Won
+
+# Check the distribution of the outcome variable
+table(data_dummies$Medal_Won)
+
+# Handling class imbalance by up-sampling the minority class
+set.seed(123)
+data_upsampled <- upSample(x = data_dummies[, -which(names(data_dummies) == "Medal_Won")],
+                           y = data_dummies$Medal_Won)
+
+# Rename the outcome variable column
+names(data_upsampled)[names(data_upsampled) == "Class"] <- "Medal_Won"
+
+# Ensure the outcome variable is a factor
+data_upsampled$Medal_Won <- as.factor(data_upsampled$Medal_Won)
+
+# Split the upsampled data into training and testing sets
+set.seed(123)
+train_index <- createDataPartition(data_upsampled$Medal_Won, p = 0.7, list = FALSE)
+train_data <- data_upsampled[train_index, ]
+test_data <- data_upsampled[-train_index, ]
+```
+
+```{r}
+# Create medal_data
+
+medal_data <- olympic_df %>%
+  group_by(Year, Season, Country, Medal) %>%
+  summarise(Nums = n_distinct(Event)) %>%
+  ungroup() %>%
+  arrange(Year)
+
+# Define the medal_stat function
+medal_stat <- function(year, season = 'Summer') {
+  t_data <- medal_data %>%
+    filter(Year <= year, Season == season) %>%
+    group_by(Country, Medal) %>%
+    summarise(Nums = sum(Nums)) %>%
+    ungroup()
+  
+  # Pivot Medal into columns (Gold, Silver, Bronze)
+  t_data_wide <- t_data %>%
+    pivot_wider(names_from = Medal, values_from = Nums, values_fill = list(Nums = 0))
+  
+  # Ensure 'Gold', 'Silver', 'Bronze' columns exist
+  medal_levels <- c('Gold', 'Silver', 'Bronze')
+  for (medal in medal_levels) {
+    if (!(medal %in% names(t_data_wide))) {
+      t_data_wide[[medal]] <- 0
+    }
+  }
+  
+  # Convert medal counts to integers
+  t_data_wide <- t_data_wide %>%
+    mutate_at(vars(Gold, Silver, Bronze), ~ as.integer(.))
+  
+  # Compute total medals and select top 20 countries
+  t_data_top <- t_data_wide %>%
+    mutate(Total = Gold + Silver + Bronze) %>%
+    arrange(desc(Total)) %>%
+    slice(1:20) %>%
+    select(Country, Gold, Silver, Bronze)
+  
+  return(t_data_top)
+}
+
+# Get the top 20 countries by cumulative medals up to the year 2016 for the Summer Olympics
+top_medalists_2016 <- medal_stat(2016, 'Summer')
+print(top_medalists_2016)
+```
+
+```{r}
+# Visualize the top medalists
+top_medalists <- medal_stat(2016, 'Summer')
+
+# Melt the data for plotting
+library(reshape2)
+top_medalists_melted <- melt(top_medalists, id.vars = 'Country', measure.vars = c('Gold', 'Silver', 'Bronze'))
+
+# Plot
+ggplot(top_medalists_melted, aes(x = reorder(Country, -value), y = value, fill = variable)) +
+  geom_bar(stat = 'identity') +
+  labs(title = 'Top 20 Countries by Total Medals (Summer Olympics up to 2016)', x = 'Country', y = 'Number of Medals') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_manual(values = c('Gold' = '#FFD700', 'Silver' = '#C0C0C0', 'Bronze' = '#CD7F32'))
+```
+
+```{r}
+# Create 'medal_data' as before
+medal_data <- olympic_df %>%
+  # Exclude 'DNW' entries
+  filter(Medal %in% c('Gold', 'Silver', 'Bronze')) %>%
+  group_by(Year, Season, Country, Medal) %>%
+  summarise(Nums = n_distinct(Event), .groups = 'drop') %>%
+  arrange(Year)
+
+# Define the 'medal_stat' function
+medal_stat <- function(year, season = 'Summer') {
+  t_data <- medal_data %>%
+    filter(Year <= year, Season == season) %>%
+    group_by(Country, Medal) %>%
+    summarise(Nums = sum(Nums), .groups = 'drop')
+  
+  # Pivot Medal into columns
+  t_data_wide <- t_data %>%
+    pivot_wider(
+      names_from = Medal,
+      values_from = Nums,
+      values_fill = list(Nums = 0)
+    )
+  
+  # Ensure 'Gold', 'Silver', 'Bronze' columns exist
+  medal_levels <- c('Gold', 'Silver', 'Bronze')
+  for (medal in medal_levels) {
+    if (!(medal %in% names(t_data_wide))) {
+      t_data_wide[[medal]] <- 0
+    }
+  }
+  
+  # Convert medal counts to integers and handle NA values
+  t_data_wide <- t_data_wide %>%
+    mutate(
+      Gold = as.integer(Gold),
+      Silver = as.integer(Silver),
+      Bronze = as.integer(Bronze),
+      Total = Gold + Silver + Bronze
+    )
+  
+  # Compute total medals and select top 20 countries
+  t_data_top <- t_data_wide %>%
+    arrange(desc(Total)) %>%
+    slice(1:20) %>%
+    select(Country, Gold, Silver, Bronze, Total)
+  
+  return(t_data_top)
+}
+
+# Get the list of years for the Summer Olympics
+year_list <- medal_data %>%
+  filter(Season == 'Summer') %>%
+  pull(Year) %>%
+  unique() %>%
+  sort()
+
+# Create a combined dataset for all years
+all_data <- list()
+for (year in year_list) {
+  t_data <- medal_stat(year)
+  t_data$Year <- year
+  all_data[[as.character(year)]] <- t_data
+}
+combined_data <- bind_rows(all_data)
+
+# Create the timeline chart
+timeline_chart <- combined_data %>%
+  group_by(Year) %>%
+  e_charts(x = Country, timeline = TRUE) %>%
+  e_bar(Bronze, name = "Bronze🥉", stack = 'stack1',
+        itemStyle = list(color = 'rgb(218,165,32)', borderColor = 'rgb(220,220,220)')) %>%
+  e_bar(Silver, name = "Silver🥈", stack = 'stack1',
+        itemStyle = list(color = 'rgb(192,192,192)', borderColor = 'rgb(220,220,220)')) %>%
+  e_bar(Gold, name = "Gold🏅️", stack = 'stack1',
+        itemStyle = list(color = 'rgb(255,215,0)', borderColor = 'rgb(220,220,220)')) %>%
+  #e_labels(show = TRUE, position = 'insideRight', fontStyle = 'italic') %>%
+  e_title(text = "Total MEDALS by country (Summer Olympics)") %>%
+  e_x_axis(axisLabel = list(rotate = 45)) %>%
+  e_legend(show = TRUE) %>%
+  e_flip_coords() %>%
+  e_timeline_opts(
+    playInterval = 1000,   # Interval between frames in milliseconds
+    autoPlay = TRUE,       # Automatically play the timeline
+    rewind = TRUE,         # Allow rewinding when the timeline reaches the end
+    show = TRUE,           # Display the timeline controls
+    label = list(show = FALSE)  # Hide labels on the timeline
+  ) %>%
+  e_tooltip(trigger = 'item')  # Enable tooltips with 'item' trigger
+
+# Display the timeline chart
+timeline_chart
+```
+
+
+```{r}
+# Load necessary libraries
+library(dplyr)
+library(tidyr)
+library(echarts4r)
+
+# Assuming 'olympic_df' is your main dataset after preprocessing
+
+# Create 'winter_medal_data' for Winter Olympics
+winter_medal_data <- olympic_df %>%
+  # Exclude 'DNW' entries
+  filter(Season == 'Winter', Medal %in% c('Gold', 'Silver', 'Bronze')) %>%
+  group_by(Year, Country, Medal) %>%
+  summarise(Nums = n_distinct(Event), .groups = 'drop') %>%
+  arrange(Year)
+
+# Define the 'winter_medal_stat' function
+winter_medal_stat <- function(year) {
+  t_data <- winter_medal_data %>%
+    filter(Year <= year) %>%
+    group_by(Country, Medal) %>%
+    summarise(Nums = sum(Nums), .groups = 'drop')
+  
+  # Pivot Medal into columns
+  t_data_wide <- t_data %>%
+    pivot_wider(
+      names_from = Medal,
+      values_from = Nums,
+      values_fill = list(Nums = 0)
+    )
+  
+  # Ensure 'Gold', 'Silver', 'Bronze' columns exist
+  medal_levels <- c('Gold', 'Silver', 'Bronze')
+  for (medal in medal_levels) {
+    if (!(medal %in% names(t_data_wide))) {
+      t_data_wide[[medal]] <- 0
+    }
+  }
+  
+  # Convert medal counts to integers and handle NA values
+  t_data_wide <- t_data_wide %>%
+    mutate(
+      Gold = as.integer(Gold),
+      Silver = as.integer(Silver),
+      Bronze = as.integer(Bronze),
+      Total = Gold + Silver + Bronze
+    )
+  
+  # Compute total medals and select top 20 countries
+  t_data_top <- t_data_wide %>%
+    arrange(desc(Total)) %>%
+    slice(1:20) %>%
+    select(Country, Gold, Silver, Bronze, Total)
+  
+  return(t_data_top)
+}
+
+# Get the list of years for the Winter Olympics
+winter_year_list <- winter_medal_data %>%
+  pull(Year) %>%
+  unique() %>%
+  sort()
+
+# Create a combined dataset for all years
+winter_all_data <- list()
+for (year in winter_year_list) {
+  t_data <- winter_medal_stat(year)
+  t_data$Year <- year
+  winter_all_data[[as.character(year)]] <- t_data
+}
+winter_combined_data <- bind_rows(winter_all_data)
+
+# Create the timeline chart for Winter Olympics
+winter_timeline_chart <- winter_combined_data %>%
+  group_by(Year) %>%
+  e_charts(x = Country, timeline = TRUE) %>%
+  e_bar(Bronze, name = "Bronze🥉", stack = 'stack1',
+        itemStyle = list(color = 'rgb(218,165,32)', borderColor = 'rgb(220,220,220)')) %>%
+  e_bar(Silver, name = "Silver🥈", stack = 'stack1',
+        itemStyle = list(color = 'rgb(192,192,192)', borderColor = 'rgb(220,220,220)')) %>%
+  e_bar(Gold, name = "Gold🏅️", stack = 'stack1',
+        itemStyle = list(color = 'rgb(255,215,0)', borderColor = 'rgb(220,220,220)')) %>%
+  e_labels(show = TRUE, position = 'insideRight', fontStyle = 'italic') %>%
+  e_title(text = "Total MEDALS by country (Winter Olympics)") %>%
+  e_x_axis(axisLabel = list(rotate = 45)) %>%
+  e_legend(show = TRUE) %>%
+  e_flip_coords() %>%
+  e_timeline_opts(
+    playInterval = 1000,   # Interval between frames in milliseconds
+    autoPlay = TRUE,       # Automatically play the timeline
+    rewind = TRUE,         # Allow rewinding when the timeline reaches the end
+    show = TRUE,           # Display the timeline controls
+    label = list(show = FALSE)  # Hide labels on the timeline
+  ) %>%
+  e_tooltip(trigger = 'item')  # Enable tooltips with 'item' trigger
+
+# Display the timeline chart
+winter_timeline_chart
+```
+
+```{r}
+# Load required libraries
+library(ggplot2)
+library(dplyr)
+library(maps)
+library(plotly)
+
+# Summarize the total number of gold medals for each country
+gold_medals <- combined_data %>%
+  group_by(Country) %>%
+  summarise(Gold_Total = sum(Gold, na.rm = TRUE))
+
+# Get world map data
+world_map <- map_data("world")
+
+# Merge map data with gold medal data
+world_map <- world_map %>%
+  left_join(gold_medals, by = c("region" = "Country"))
+
+# Create a map and add hover text
+map <- ggplot(data = world_map, aes(x = long, y = lat, group = group, fill = Gold_Total,
+                                    text = paste0("Country: ", region, "<br>Total Gold Medals: ", Gold_Total))) +
+  geom_polygon(color = "white", size = 0.2) +
+  scale_fill_gradient(low = "lightyellow", high = "darkred", na.value = "grey80",
+                      name = "Total Gold Medals") +
+  theme_minimal() +
+  labs(title = "Distribution of Total Gold Medals by Country") +
+  theme(axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        plot.title = element_text(hjust = 0.5))
+
+# Convert ggplot2 map to an interactive plotly map
+interactive_map <- ggplotly(map, tooltip = "text")
+
+# Display the interactive map
+interactive_map
+```
+
+```{r}
+# Load required libraries
+library(ggplot2)
+library(dplyr)
+
+# Calculate the number of medals for each sport
+sport_medals <- athlete_data %>%
+  # Filter only rows with medals (Gold, Silver, Bronze)
+  filter(Medal %in% c("Gold", "Silver", "Bronze")) %>%
+  group_by(Sport, Medal) %>%
+  summarise(Count = n(), .groups = "drop") %>%
+  ungroup()
+
+# Calculate total medals for each sport and select the top 15 sports
+top_sports <- sport_medals %>%
+  group_by(Sport) %>%
+  summarise(Total = sum(Count)) %>%
+  arrange(desc(Total)) %>%
+  slice_head(n = 15) %>%
+  pull(Sport)
+
+# Filter data to include only the top 15 sports
+sport_medals_top <- sport_medals %>%
+  filter(Sport %in% top_sports)
+
+# Define medal colors
+medal_colors <- c("Gold" = "#FFD700",     # Gold medal color
+                  "Silver" = "#C0C0C0",   # Silver medal color
+                  "Bronze" = "#CD7F32")   # Bronze medal color
+
+# Create a stacked bar chart
+ggplot(sport_medals_top, 
+       aes(x = reorder(Sport, -Count),  # Reorder sports by total count in descending order
+           y = Count, 
+           fill = Medal)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = medal_colors) +  # Apply custom colors
+  coord_flip() +  # Flip coordinates to make a horizontal bar chart
+  labs(title = "Medal Distribution By Sports (Top 15)",
+       x = "Sports",  # Label for x-axis
+       y = "Number of Medals") +  # Label for y-axis
+  theme_minimal() +  # Apply a minimal theme
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),  # Style the title
+    axis.text = element_text(size = 10),                              # Adjust axis text size
+    axis.title = element_text(size = 12),                             # Adjust axis title size
+    legend.title = element_text(size = 10),                           # Adjust legend title size
+    legend.text = element_text(size = 9)                              # Adjust legend text size
+  )
+```
+
+```{r}
+# Load required libraries
+library(ggplot2)
+library(dplyr)
+
+# Data processing
+age_medals <- athlete_data %>%
+  filter(!is.na(Medal) & !is.na(Age))  # Filter out rows with missing Medal or Age values
+
+# Create age groups
+age_medals$AgeGroup <- cut(age_medals$Age, 
+                          breaks = seq(10, 60, by = 1),  # Define age ranges
+                          right = FALSE,  # Include the lower bound but not the upper
+                          labels = seq(10, 59, by = 1))  # Add explicit labels for age groups
+
+# Count the number of medals for each age group
+age_group_medals <- age_medals %>%
+  group_by(AgeGroup) %>%
+  summarise(Count = n(), .groups = "drop")  # Calculate the count and drop grouping after summarization
+
+# Plot a bar chart
+ggplot(age_group_medals, aes(x = AgeGroup, y = Count)) +
+  geom_bar(stat = "identity", fill = "steelblue", alpha = 0.8) +  # Create a bar chart with customized aesthetics
+  labs(title = "Medal Distribution by Age",  # Add chart title
+       x = "Age",                            # Label for x-axis
+       y = "Number of Medals") +             # Label for y-axis
+  theme_minimal() +                          # Apply a minimal theme
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),  # Center and style the title
+    axis.text = element_text(size = 10),                              # Adjust axis text size
+    axis.title = element_text(size = 12),                             # Adjust axis title size
+    axis.text.x = element_text(angle = 45, hjust = 1)                 # Rotate x-axis text by 45 degrees to prevent overlap
+  ) +
+  # Adjust x-axis labels to show every 2nd group
+  scale_x_discrete(breaks = function(x) x[seq(1, length(x), by = 2)]) +
+  # Add gridlines for better readability
+  theme(panel.grid.major.y = element_line(color = "grey90"),  # Add horizontal gridlines
+        panel.grid.major.x = element_blank())                # Remove vertical gridlines
+```
+
+
+```{r}
+# Load necessary libraries
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+
+# Calculate medal counts for male and female athletes
+gender_medals <- athlete_data %>%
+  filter(!is.na(Medal), !is.na(Sex)) %>%        # Exclude records with missing Medal or Sex
+  group_by(Medal, Sex) %>%                      # Group by Medal type and Sex
+  summarise(Count = n(), .groups = 'drop') %>%  # Count the number of medals
+  mutate(
+    Sex = recode(Sex, "M" = "Male", "F" = "Female")  # Recode Sex for clarity
+  ) %>%
+  mutate(
+    Medal = factor(Medal, levels = c("Gold", "Silver", "Bronze"))  # Order Medal types
+  ) %>%
+  filter(!is.na(Medal)) %>%                      # Exclude any records with NA Medal after factor conversion
+  complete(Medal, Sex, fill = list(Count = 0))   # Ensure all combinations are present
+
+# Plot a grouped bar chart with data labels
+ggplot(gender_medals, aes(x = Medal, y = Count, fill = Sex, label = Count)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.7), width = 0.6) +
+  geom_text(position = position_dodge(width = 0.7), vjust = -0.5, size = 4) +
+  labs(title = "Medal Counts by Gender",
+       x = "Medal Type",
+       y = "Number of Medals",
+       fill = "Gender") +
+  scale_fill_manual(values = c("Male" = "#4E79A7", "Female" = "#F28E2B")) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14),
+    legend.title = element_text(size = 14),
+    legend.text = element_text(size = 12)
+  )
+```
+
+
+```{r}
+# Load necessary libraries
+library(dplyr)
+library(caret)
+library(pROC)
+
+# Load data
+athlete_data <- read.csv("athlete_events.csv")
+
+# Data Preparation
+# Filter relevant columns and remove missing values
+data_model <- athlete_data %>%
+  select(Sex, Age, Height, Weight, Team, NOC, Sport, Event, Medal) %>%
+  filter(!is.na(Age), !is.na(Height), !is.na(Weight), !is.na(Sex), !is.na(Sport), !is.na(Event)) %>%
+  mutate(
+    # Create binary outcome variable
+    Medal_Won = ifelse(is.na(Medal), 0, 1),
+    # Encode Sex
+    Sex = ifelse(Sex == "M", 1, 0)
+  )
+
+# Convert categorical variables to factors
+data_model$Sport <- as.factor(data_model$Sport)
+data_model$Event <- as.factor(data_model$Event)
+data_model$NOC <- as.factor(data_model$NOC)
+
+# Create dummy variables using model.matrix
+data_dummies <- model.matrix(Medal_Won ~ Age + Height + Weight + Sex + Sport + Event, data = data_model)
+data_dummies <- as.data.frame(data_dummies)
+
+# Add the outcome variable
+data_dummies$Medal_Won <- data_model$Medal_Won
+
+# Check the balance of the outcome variable
+table(data_dummies$Medal_Won)
+
+# Split data into training and test sets
+set.seed(123)
+train_index <- sample(seq_len(nrow(data_dummies)), size = 0.7 * nrow(data_dummies))
+train_data <- data_dummies[train_index, ]
+test_data <- data_dummies[-train_index, ]
+
+# Up-sample the minority class in the training data
+train_data_balanced <- upSample(x = train_data[, -which(names(train_data) == "Medal_Won")],
+                                y = train_data$Medal_Won,
+                                yname = "Medal_Won")
+
+# Convert outcome variable to factor for classification
+train_data_balanced$Medal_Won <- as.factor(train_data_balanced$Medal_Won)
+test_data$Medal_Won <- as.factor(test_data$Medal_Won)
+
+# Model Building
+# Fit logistic regression model
+logistic_model <- glm(Medal_Won ~ ., data = train_data_balanced, family = binomial(link = "logit"))
+
+# Model Summary
+summary(logistic_model)
+
+# Model Evaluation
+# Predict on test data
+test_data$Predicted_Prob <- predict(logistic_model, newdata = test_data, type = "response")
+test_data$Predicted_Class <- ifelse(test_data$Predicted_Prob > 0.5, 1, 0)
+
+# Confusion Matrix
+confusionMatrix(factor(test_data$Predicted_Class), test_data$Medal_Won)
+
+# ROC Curve
+roc_obj <- roc(as.numeric(as.character(test_data$Medal_Won)), test_data$Predicted_Prob)
+plot(roc_obj, main = "ROC Curve for Logistic Regression Model")
+auc(roc_obj)
+
+```
+
+```{r}
+# Load necessary libraries
+library(dplyr)
+library(caret)
+library(randomForest)
+library(pROC)
+
+# Data Preparation
+
+# Create dummy variables without the intercept
+data_dummies <- model.matrix(~ Age + Height + Weight + Sex + Sport + Event - 1, data = data_model)
+data_dummies <- as.data.frame(data_dummies)
+
+# Add the outcome variable
+data_dummies$Medal_Won <- data_model$Medal_Won
+
+# Split data into training and testing sets
+set.seed(123)
+train_index <- createDataPartition(data_dummies$Medal_Won, p = 0.7, list = FALSE)
+train_data <- data_dummies[train_index, ]
+test_data <- data_dummies[-train_index, ]
+
+# Ensure the outcome variable is a factor
+train_data$Medal_Won <- as.factor(train_data$Medal_Won)
+test_data$Medal_Won <- as.factor(test_data$Medal_Won)
+
+# Model Building
+
+# Train Random Forest Model
+set.seed(123)
+rf_model <- randomForest(Medal_Won ~ ., data = train_data, ntree = 100, importance = TRUE)
+
+# View model summary
+print(rf_model)
+
+# Model Evaluation
+
+# Predict on test data
+test_data$Predicted_Class <- predict(rf_model, newdata = test_data)
+test_data$Predicted_Prob <- predict(rf_model, newdata = test_data, type = "prob")[,2]
+
+# Confusion Matrix
+confusionMatrix(test_data$Predicted_Class, test_data$Medal_Won)
+
+# ROC Curve
+roc_obj_rf <- roc(as.numeric(as.character(test_data$Medal_Won)), test_data$Predicted_Prob)
+plot(roc_obj_rf, main = "ROC Curve for Random Forest Model")
+auc(roc_obj_rf)
+
+# Feature Importance
+importance(rf_model)
+varImpPlot(rf_model)
+```
+
+```{r}
+# Load required libraries
+library(tidyverse)
+library(maps)
+library(ggplot2)
+library(viridis)
+
+# Read data
+athlete_events <- read.csv("athlete_events.csv", stringsAsFactors = FALSE)
+noc_regions <- read.csv("noc_regions.csv", stringsAsFactors = FALSE)
+
+# Data cleaning
+athlete_events$Medal[is.na(athlete_events$Medal)] <- 'DNW'
+athlete_events <- athlete_events[!duplicated(athlete_events), ]
+
+# Create medal_data data frame
+medal_data <- athlete_events %>%
+  filter(Medal %in% c('Gold', 'Silver', 'Bronze')) %>%
+  inner_join(noc_regions, by = "NOC") %>%
+  group_by(Year, Season, Country = region, Medal) %>%
+  summarise(Nums = n_distinct(Event)) %>%
+  ungroup() %>%
+  arrange(Year)
+
+# Define medal_stat function
+medal_stat <- function(year, season = 'Summer') {
+  t_data <- medal_data %>%
+    filter(Year <= year, Season == season) %>%
+    group_by(Country, Medal) %>%
+    summarise(Nums = sum(Nums)) %>%
+    ungroup()
+  
+  # Pivot medal data
+  t_data_wide <- t_data %>%
+    pivot_wider(names_from = Medal, values_from = Nums, values_fill = list(Nums = 0))
+  
+  # Ensure 'Gold', 'Silver', 'Bronze' columns exist
+  medal_levels <- c('Gold', 'Silver', 'Bronze')
+  for (medal in medal_levels) {
+    if (!(medal %in% names(t_data_wide))) {
+      t_data_wide[[medal]] <- 0
+    }
+  }
+  
+  # Convert medal counts to integers
+  t_data_wide <- t_data_wide %>%
+    mutate_at(vars(Gold, Silver, Bronze), ~ as.integer(.))
+  
+  # Compute total medals and select top 20 countries
+  t_data_top <- t_data_wide %>%
+    mutate(Total = Gold + Silver + Bronze) %>%
+    arrange(desc(Total)) %>%
+    slice(1:20) %>%
+    select(Country, Gold, Silver, Bronze, Total)
+  
+  return(t_data_top)
+}
+
+# Get the top 20 countries by cumulative medals up to the year 2016 for the Summer Olympics
+top_medalists_2016 <- medal_stat(2016, 'Summer')
+print(top_medalists_2016)
+
+# Create world map visualization
+world_map <- map_data("world")
+
+medal_map <- medal_data %>%
+  group_by(Country) %>%
+  summarise(total_gold = sum(Nums[Medal == "Gold"]),
+            total_silver = sum(Nums[Medal == "Silver"]), 
+            total_bronze = sum(Nums[Medal == "Bronze"])) %>%
+  mutate(total_medals = total_gold + total_silver + total_bronze) %>%
+  left_join(world_map, by = c("Country" = "region")) %>%
+  ggplot() +
+  geom_polygon(aes(x = long, y = lat, group = group, fill = total_medals), color = "white", size = 0.2) +
+  scale_fill_viridis(name = "Total Medals", option = "plasma") +
+  labs(title = "Total Medals by Country (Summer Olympics)") +
+  theme_minimal() +
+  theme(axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank())
+
+print(medal_map)
+```
+
+
+```{r}
+# Load necessary packages
+library(lme4)
+library(dplyr)
+
+# Read data
+athlete_data <- read.csv("athlete_events.csv")
+noc_data <- read.csv("noc_regions.csv")
+
+# Merge the two datasets based on the NOC column
+merged_data <- merge(athlete_data, noc_data, by = "NOC")
+
+# Data preprocessing: Convert the Medal column to a binary variable, 1 for winning a medal, 0 for not winning
+merged_data <- merged_data %>%
+  mutate(Medal_Binary = ifelse(Medal %in% c("Gold", "Silver", "Bronze"), 1, 0),
+         Sex = factor(Sex, levels = c("M", "F")), # Convert Sex to a factor
+         Team = as.factor(Team))                  # Convert Team to a factor
+
+# Build a multilevel regression model with Team as a random effect
+model <- glmer(
+  Medal_Binary ~ Sex + Age + Height + Weight + (1 | Team),
+  data = merged_data,
+  family = binomial(link = "logit")
+)
+
+# Display model results
+summary(model)
+
+```
+
+```{r}
+# Load necessary packages
+library(dplyr)
+library(randomForest)
+library(caret)
+
+# Read datasets
+athlete_data <- read.csv("athlete_events.csv")
+noc_data <- read.csv("noc_regions.csv")
+
+# Merge datasets based on the NOC column
+merged_data <- merge(athlete_data, noc_data, by = "NOC", all.x = TRUE)
+
+# Check for missing values
+missing_summary <- colSums(is.na(merged_data))
+print("Missing value summary:")
+print(missing_summary)
+
+# Handle missing values
+# Fill missing numeric variables with their median
+merged_data$Age[is.na(merged_data$Age)] <- median(merged_data$Age, na.rm = TRUE)
+merged_data$Height[is.na(merged_data$Height)] <- median(merged_data$Height, na.rm = TRUE)
+merged_data$Weight[is.na(merged_data$Weight)] <- median(merged_data$Weight, na.rm = TRUE)
+
+# Fill missing categorical variables with the most frequent value
+merged_data$region[is.na(merged_data$region)] <- "Unknown"
+merged_data$notes[is.na(merged_data$notes)] <- "None"
+
+# Create the target variable Medal_Binary and ensure it is a factor
+merged_data <- merged_data %>%
+  mutate(Medal_Binary = as.factor(ifelse(Medal %in% c("Gold", "Silver", "Bronze"), 1, 0)))
+
+# Handle the issue of too many categories in the Sport variable
+# Keep the top 20 most frequent categories, others are set to "Other"
+top_sports <- names(sort(table(merged_data$Sport), decreasing = TRUE)[1:50])
+merged_data$Sport <- ifelse(merged_data$Sport %in% top_sports, merged_data$Sport, "Other")
+merged_data$Sport <- as.factor(merged_data$Sport)
+
+# Convert other categorical variables to factors
+merged_data$Sex <- as.factor(merged_data$Sex)
+
+# Check again if there are still missing values
+if (any(is.na(merged_data))) {
+  stop("There are still missing values in the dataset.")
+}
+
+# Select variables for modeling
+features <- c("Sex", "Age", "Height", "Weight", "Sport")
+target <- "Medal_Binary"
+model_data <- merged_data[, c(features, target)]
+
+# Split data into training and testing sets
+set.seed(42)
+train_index <- createDataPartition(model_data$Medal_Binary, p = 0.7, list = FALSE)
+train_data <- model_data[train_index, ]
+test_data <- model_data[-train_index, ]
+
+# Train the Random Forest model
+rf_model <- randomForest(
+  Medal_Binary ~ ., 
+  data = train_data, 
+  ntree = 100, 
+  mtry = 3, 
+  importance = TRUE
+)
+
+# Predict on the test set
+predictions <- predict(rf_model, test_data)
+
+# Evaluate model performance
+accuracy <- sum(predictions == test_data$Medal_Binary) / nrow(test_data)
+print(paste("Accuracy:", round(accuracy, 4)))
+
+# Confusion matrix
+confusion_matrix <- confusionMatrix(predictions, test_data$Medal_Binary)
+print(confusion_matrix)
+
+# Feature importance
+importance <- importance(rf_model)
+varImpPlot(rf_model)
+```
+
