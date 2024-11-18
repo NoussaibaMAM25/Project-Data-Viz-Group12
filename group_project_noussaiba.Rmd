@@ -34,8 +34,6 @@ library(tidyr)
 library(rworldmap)
 library(RColorBrewer)
 library(viridis)
-
-
 library(plotly)
 library(sf)
 library(rnaturalearth)
@@ -43,70 +41,74 @@ library(rnaturalearthdata)
 library(patchwork)
 library(mapview)
 library(tmap)
-
-
 library(showtext)
 library(ggtext)
 library(viridis)
-
-# load fonts we will use
 font_add_google("Montserrat", "Montserrat") 
 font_add_google("Lato", "Lato")
-
-## Automatically use showtext to render text for future devices
 showtext_auto()
-
-
 ```
-
 
 # Load the datasets
+
 ```{r}
-athlete_data <- read_csv('data/athlete_events.csv')
+athlete_data <- read_csv('data/athlete_events.csv') # load athelets csv
 
-noc_region <- read_csv('data/noc_regions.csv')
+noc_region <- read_csv('data/noc_regions.csv') # load regions csv
 
-# Merge datasets on 'NOC' 
-data <- merge(athlete_data, noc_region, by = 'NOC', all.x = TRUE)
+data <- merge(athlete_data, noc_region, by = 'NOC') # merge both csv files
 ```
+# Data Cleaning
 
-#Data Cleaning
 ```{r}
+# rename columns to lower case
+
 data <- data %>% 
   
   rename_all(tolower)
 
-## checking missing values for every column
+# checking missing values for every column
+
 missing_values <- sapply(data, function(x) sum(is.na(x)))
+
+# droping notes column
 
 data <- subset(data , select = -c(notes))
 
-## handle missing values by grouping by sex for height and weight
+## handle missing values 
+
 data <- data %>%
   
-  filter(!is.na(region)) %>% 
+  filter(!is.na(region)) %>% # drop na regions
   
-  mutate(age = ifelse(is.na(age), median(age, na.rm = TRUE), age)) %>% 
+  mutate(age = ifelse(is.na(age), median(age, na.rm = TRUE), age)) %>%  # replace age missing values by median age
   
   group_by(sex) %>%
   
   mutate(
-    height = ifelse(is.na(height), median(height, na.rm = TRUE), height),
-    weight = ifelse(is.na(weight), median(weight, na.rm = TRUE), weight),
+    
+    height = ifelse(is.na(height), median(height, na.rm = TRUE), height), # replace height missing values by median height for each gender
+    
+    weight = ifelse(is.na(weight), median(weight, na.rm = TRUE), weight), # replace weight missing values by median height for each gender
+    
     medal = ifelse(is.na(medal), "DNW", medal) # change na to DNW (did not win)
   ) %>%
   
   ungroup()
+
 ```
 
-#Descriptive analysis
-```{r}
-# Calculate summary statistics by Year and Sex
+
+```{r fig1, fig.height = 3, fig.width = 5}
+
+# Calculate summary statistics by Year and Sex for age, height, and weight
+
 summary_stats <- data %>%
   
   group_by(year, sex) %>%
   
   summarise(
+    
     Avg_Age = mean(age),
     
     Median_Age = median(age),
@@ -138,23 +140,27 @@ ggplot(summary_stats, aes(x = year, y = Avg_Age)) +
   facet_wrap(~sex)+
   
   labs(title = 'There is a downward trend for athelet age over time',
+       
        subtitle = "Average age of atheletes over time by gender",
+       
        x = NULL,
+       
        y = 'Age') +
   
   theme_bw() +
   
   theme(
     plot.title = element_text(size = 16),
+    
     plot.subtitle = element_text(size = 12),
+    
     panel.grid.major = element_line(color = "grey80")
   )
-
 ```
 
+```{r fig2, fig.height = 3, fig.width = 8}
+# plotting average Height by gender
 
-```{r}
-# Average Height
 ggplot(summary_stats, aes(x = sex, y = Avg_Height)) +
   
   geom_boxplot() +
@@ -180,8 +186,10 @@ ggplot(summary_stats, aes(x = sex, y = Avg_Height)) +
   
 
 ```
-```{r}
-# Average Weight
+
+```{r fig3, fig.height = 3, fig.width = 8}
+# plotting average weight by gender 
+
 ggplot(summary_stats, aes(x = sex, y = Avg_Weight)) +
   
   geom_boxplot() +
@@ -202,10 +210,12 @@ ggplot(summary_stats, aes(x = sex, y = Avg_Weight)) +
     
     panel.grid.major = element_line(color = "grey80")
   )
+
 ```
 
-```{r}
-# distribution of athletes ages
+```{r fig4, fig.height = 3, fig.width = 8}
+
+# plotting distribution of athletes ages
 
 ggplot(data, aes(x = age)) +
   
@@ -227,10 +237,11 @@ ggplot(data, aes(x = age)) +
     
     panel.grid.major = element_line(color = "grey80")
   )
+
 ```
 
-```{r}
-#Athletes age distribution over time
+```{r fig5, fig.height = 3, fig.width = 8}
+#plotting athletes age distribution over time
 
 ggplot(data, aes(x = factor(year), y = age)) +
   
@@ -255,11 +266,13 @@ ggplot(data, aes(x = factor(year), y = age)) +
     
     panel.grid.major = element_line(color = "grey80")
   )
-```
 
-#country level analysis
-```{r}
-# Total medals by country
+```
+# Country level analysis
+
+```{r fig6, fig.height = 3, fig.width = 8}
+
+# computing total medals by country
 medals_by_country <- data %>%
   
   filter(medal %in% c('Gold', 'Silver', 'Bronze')) %>%
@@ -285,7 +298,7 @@ country_medals <- data %>%
   
   spread(medal, count, fill = 0)
 
-# Plotting medal counts
+# Plotting medal counts by country
 
 country_medals_long <- country_medals %>%
   
@@ -319,9 +332,10 @@ ggplot(country_medals_long, aes(x = reorder(region, -count), y = count, fill = m
 
 ```
 
+```{r fig7, fig.height = 3, fig.width = 8}
 
-```{r}
 # Average age, height, weight by country
+
 country_demographics <- data %>%
   
   filter(region %in% top_countries) %>%
@@ -336,7 +350,8 @@ country_demographics <- data %>%
     Avg_Weight = mean(weight)
   )
 
-# Plotting average age by region
+# Plotting average age by region for top winning countries
+
 ggplot(country_demographics, aes(x = reorder(region, -Avg_Age), y = Avg_Age)) +
   
   geom_bar(stat = 'identity') +
@@ -362,26 +377,37 @@ ggplot(country_demographics, aes(x = reorder(region, -Avg_Age), y = Avg_Age)) +
   )
 ```
 
-```{r}
+```{r fig8, fig.height = 3, fig.width = 8}
 
+# computing the number of winners by gender for the top winning countries
 
-# Summarize the data
 data_summary <- data %>%
+  
   filter(region %in% top_countries, medal %in% c('Gold', 'Silver', 'Bronze')) %>%
+  
   group_by(region, sex) %>%
+  
   summarise(count = n())
 
 # Create the bar plot
+
 ggplot(data_summary, aes(y = region, x = count, fill = sex)) +
+  
   geom_bar(stat = 'identity', position = 'dodge') +
+  
   labs(
     title = "Most medal winners are males",
+    
     subtitle = "Top Medal-Winning Countries by Gender",
+    
     x = "Number of Medals",
+    
     y = NULL,
-    fill = "Gender"
-  ) +
+    
+    fill = "Gender") +
+  
   theme_bw() +
+  
   theme(
     plot.title = element_text(size = 16),
     
@@ -389,11 +415,12 @@ ggplot(data_summary, aes(y = region, x = count, fill = sex)) +
     
     panel.grid.major = element_line(color = "grey80")
   )
-
 ```
 
-```{r}
-# Gender counts by country
+```{r fig9, fig.height = 3, fig.width = 8}
+
+# computing the females participants percenatges for each of the top winning countries
+
 gender_distribution <- data %>%
   
   filter(region %in% top_countries) %>%
@@ -405,10 +432,13 @@ gender_distribution <- data %>%
   spread(sex, count, fill = 0) %>%
   
   mutate(Total = F + M,
+         
          Female_Percentage = F / Total * 100)
 
-# Plotting female participation
+# Plotting female participation in the top winning countries
+
 ggplot(gender_distribution, aes(x = reorder(region, -Female_Percentage), y = Female_Percentage)) +
+  
   geom_bar(stat = 'identity', fill = 'hotpink') +
   
   coord_flip() +
@@ -431,118 +461,12 @@ ggplot(gender_distribution, aes(x = reorder(region, -Female_Percentage), y = Fem
     panel.grid.major = element_line(color = "grey80")
   )
 
-
 ```
 
-```{r}
-#Manually classify each sport as either 'Individual' or 'Team'
+```{r fig10, fig.height = 3, fig.width = 8}
 
-sport_classification <- tibble(
-  sport = c("Hockey", "Wrestling", "Football", "Athletics", "Boxing", "Taekwondo", "Judo", "Weightlifting", 
-            "Shooting", "Triathlon", "Synchronized Swimming", "Sailing", "Swimming", "Equestrianism", "Bobsleigh", 
-            "Fencing", "Luge", "Alpine Skiing", "Cycling", "Gymnastics", "Cross Country Skiing", "Rowing", 
-            "Handball", "Volleyball", "Table Tennis", "Trampolining", "Badminton", "Tennis", "Canoeing", 
-            "Snowboarding", "Biathlon", "Basketball", "Beach Volleyball", "Rugby", "Diving", "Rugby Sevens", 
-            "Water Polo", "Polo", "Art Competitions", "Skeleton", "Freestyle Skiing", "Modern Pentathlon", 
-            "Figure Skating", "Archery", "Golf", "Softball", "Baseball", "Speed Skating", "Short Track Speed Skating", 
-            "Rhythmic Gymnastics", "Ice Hockey", "Alpinism", "Nordic Combined", "Ski Jumping", "Tug-Of-War", 
-            "Lacrosse", "Curling", "Basque Pelota", "Military Ski Patrol", "Croquet", "Motorboating", "Cricket", 
-            "Racquets", "Jeu De Paume", "Aeronautics", "Roque"),
-  
-  Event_Type = c("Team", "Individual", "Team", "Individual", "Individual", "Individual", "Individual", "Individual", 
-                 "Individual", "Individual", "Team", "Team", "Individual", "Individual", "Team", 
-                 "Individual", "Individual", "Individual", "Individual", "Individual", "Individual", "Team", 
-                 "Team", "Team", "Team", "Individual", "Individual", "Individual", "Team", 
-                 "Individual", "Individual", "Team", "Team", "Team", "Individual", "Team", 
-                 "Team", "Team", "Individual", "Individual", "Individual", "Individual", 
-                 "Individual", "Individual", "Individual", "Individual", "Team", "Team", 
-                 "Individual", "Individual", "Individual", "Individual", "Individual", 
-                 "Team", "Team", "Team", "Individual", "Individual", "Individual", "Team", 
-                 "Individual", "Individual", "Individual", "Individual", "Individual", "Individual")
-)
-
-#  Merge the classification with the main data
-data <- data %>%
-  
-  left_join(sport_classification, by = "sport")
-
-
-# Filter data for medals in individual and team events
-medals_data <- data %>%
-  
-  filter(medal %in% c('Gold', 'Silver', 'Bronze'))
-
-# Top countries in individual events
-top_countries_individual <- medals_data %>%
-  
-  filter(Event_Type == 'Individual') %>%
-  
-  group_by(region) %>%
-  
-  summarise(Medals = n()) %>%
-  
-  arrange(desc(Medals)) %>%
-  
-  top_n(10, Medals)  
-
-#  Top countries in team events
-top_countries_team <- medals_data %>%
-  filter(Event_Type == 'Team') %>%
-  
-  group_by(region) %>%
-  
-  summarise(Medals = n()) %>%
-  
-  arrange(desc(Medals)) %>%
-  
-  top_n(10, Medals)  # Get top 10 countries
-
-# Combine top countries lists
-top_countries <- unique(c(top_countries_individual$region, top_countries_team$region))
-
-# Medal counts by country, event type, and gender
-medal_counts <- medals_data %>%
-  
-  filter(region %in% top_countries) %>%
-  
-  group_by(region, Event_Type, sex) %>%
-  
-  summarise(Medals = n(), .groups = 'drop')
-
-
-# Comparative plot for both event types
-ggplot(medal_counts, aes(x = reorder(region, -Medals), y = Medals, fill = sex)) +
-  
-  geom_bar(stat = 'identity') +
-  
-  facet_wrap(~ Event_Type) +
-  
-  coord_flip() +
-  
-  labs(
-    title = "Individual games & males tend to win more medals in olympic games",
-    
-    subtitle = 'Medals Won by Country, Event Type, and Gender',
-    
-    x = NULL,
-    
-    y = 'Number of Medals'
-  ) +
-  
-  theme_bw() +
-  
-  theme(
-    
-    plot.title = element_text(size = 16),
-    
-    plot.subtitle = element_text(size = 12),
-    
-    panel.grid.major = element_line(color = "grey80")
-  )
-```
-
-```{r}
 # Aggregate total medals by country
+
 medals_map_data <- data %>%
   
   filter(medal %in% c('Gold', 'Silver', 'Bronze')) %>%
@@ -559,7 +483,8 @@ map_data_merged <- world_map %>%
   
   left_join(medals_map_data, by = 'region')
 
-# Create the plotly map
+# Create the world map
+
 plotly_map <- ggplot(map_data_merged, aes(long, lat, group = group, fill = Total_Medals, text = region)) +
   
   geom_polygon(color = 'gray70') +
@@ -577,25 +502,28 @@ plotly_map <- ggplot(map_data_merged, aes(long, lat, group = group, fill = Total
   theme(legend.position = 'bottom')
 
 # Convert to interactive plotly object
-ggplotly(plotly_map, tooltip = c('text', 'fill'))
 
+ggplotly(plotly_map, tooltip = c('text', 'fill'))
 
 ```
 
-```{r}
-# Aggregate athlete counts by country and year
+```{r fig11, fig.height = 3, fig.width = 8}
+
+# Aggregate athlete counts by country 
+
 participation_data <- data %>%
   
-  group_by(year, region) %>%
+  group_by(region) %>%
   
   summarise(Athletes = n_distinct(id))
 
-# Prepare map data for a specific year (e.g., 2016)
+# Prepare map data 
 map_data <- world_map %>%
   
   left_join(participation_data, by = 'region')
 
 # Plotting the map for the selected year
+
 p2 <- ggplot(map_data, aes(long, lat, group = group, text = region)) +
   
   geom_polygon(aes(fill = Athletes), color = 'gray70') +
@@ -604,18 +532,17 @@ p2 <- ggplot(map_data, aes(long, lat, group = group, text = region)) +
   
   theme_void() +
   
-  labs(title = paste('Number of Athletes by Country in'),
+  labs(title = paste('Number of Participants by Country'),
        
        fill = 'Number of Athletes') +
   
   theme(legend.position = 'bottom')
 
 ggplotly(p2, tooltip = c('text', 'fill'))
-
-
 ```
 
-```{r echo=TRUE}
+```{r fig12, fig.height = 3, fig.width = 8}
+
 # Calculate total gold medals by athlete
 
 top_athletes <- data %>%
@@ -631,6 +558,7 @@ top_athletes <- data %>%
   slice(1:10)
 
 # Plot top athletes by gold medals won
+
 ggplot(top_athletes, aes(x = reorder(name, Total_Gold_Medals), y = Total_Gold_Medals)) +
   
   geom_bar(stat = "identity", fill = "gold") +
@@ -657,47 +585,8 @@ ggplot(top_athletes, aes(x = reorder(name, Total_Gold_Medals), y = Total_Gold_Me
   )
 
 ```
+```{r fig13, fig.height = 3, fig.width = 8}
 
-```{r}
-# Filter data for UK, and Germany
-
-selected_countries_data <- data %>% filter(region %in% c("UK", "Germany"))
-
-# Historical participation for the selected countries
-country_participation <- selected_countries_data %>%
-  
-  group_by(year, season, region) %>%
-  
-  summarize(Num_Athletes = n_distinct(id), .groups = "drop")
-
-# Plot historical participation for selected countries
-ggplot(country_participation, aes(x = year, y = Num_Athletes, color = region)) +
-  
-  geom_line(size = 1) +
-  
-  facet_wrap(~ season) +
-  
-  labs(title = "Germany participates more in summer Olympics than the UK",
-       
-       subtitle = "Participation Over Time by Country and Season",
-       
-       x = NULL,
-       
-       y = "Number of Athletes",
-       
-       color = "Country") +
-  
-  theme_bw() +
-  
-  theme(
-    plot.title = element_text(size = 16),
-    
-    plot.subtitle = element_text(size = 12),
-    
-    panel.grid.major = element_line(color = "grey80")
-  )
-```
-```{r}
 # Athlete counts by year and gender
 gender_participation <- data %>%
   
@@ -706,6 +595,7 @@ gender_participation <- data %>%
   summarise(Participants = n_distinct(id))
 
 # Plotting participation over time
+
 ggplot(gender_participation, aes(x = year, y = Participants, color = sex)) +
   
   geom_line(size = 0.5) +
@@ -728,8 +618,11 @@ ggplot(gender_participation, aes(x = year, y = Participants, color = sex)) +
     panel.grid.major = element_line(color = "grey80")
   )
 ```
-```{r}
+
+```{r fig14, fig.height = 3, fig.width = 8}
+
 # Medal counts by gender
+
 gender_medals <- data %>%
   
   filter(medal %in% c('Gold', 'Silver', 'Bronze')) %>%
@@ -771,120 +664,4 @@ ggplot(gender_medals_long, aes(x = sex, y = Count, fill = medal)) +
   )
 
 ```
-```{r}
-# Participation by sport and gender
-sport_gender_participation <- data %>%
-  
-  group_by(sport, sex) %>%
-  
-  summarise(Participants = n_distinct(id))
-
-# Calculating dominance
-sport_gender_dominance <- sport_gender_participation %>%
-  
-  group_by(sport) %>%
-  
-  mutate(Total = sum(Participants),
-         
-         Percentage = Participants / Total * 100) %>%
-  
-  filter(Percentage > 80)
-
-# Improved ggplot
-ggplot(sport_gender_dominance, aes(x = reorder(sport, Percentage), y = Percentage, fill = sex)) +
-  
-  geom_bar(stat = "identity", width = 0.7) +
-  
-  geom_text(aes(label = paste0(round(Percentage, 1), "%")), hjust = -0.2, size = 2, color = "black") +
-  
-  labs(
-    title = "Most Sports are Dominated by Males",
-    
-    subtitle = "Sports with Gender Dominance (Over 80%)",
-    
-    x = "Sport",
-    
-    y = "Percentage of Participants"
-  ) +
-  
-  coord_flip() +
-  
-  theme_minimal(base_size = 10) + # Increase base font size for readability
-  
-  theme(
-    plot.title = element_text(size = 18, face = "bold"),
-    
-    plot.subtitle = element_text(size = 14, color = "gray30"),
-    
-    axis.title.x = element_text(size = 8),
-    
-    axis.title.y = element_text(size = 8),
-    
-    panel.grid.major.y = element_blank(), # Remove horizontal grid lines
-    
-    panel.grid.minor = element_blank(),
-    
-    legend.position = "top", # Move legend to the top
-    
-    legend.title = element_blank() # Remove legend title
-  ) +
-  
-  scale_fill_manual(values = c("M" = "#66c2a5", "F" = "#fc8d62")) # Custom color palette
-
-
-```
-
-```{r}
-# Assuming your dataset is called 'data' and the columns are 'gender' and 'medals'
-
-# Checking for normality to decide the test type
-shapiro_male <- shapiro.test(data$medals[data$sex == "M"])
-shapiro_female <- shapiro.test(data$medals[data$sex == "F"])
-
-# Perform a t-test if the data is normally distributed, otherwise use a Mann-Whitney U test
-if (shapiro_male$p.value > 0.05 & shapiro_female$p.value > 0.05) {
-  # Perform t-test
-  t_test_result <- t.test(medals ~ sex, data = data)
-  print("T-test results:")
-  print(t_test_result)
-} else {
-  # Perform Mann-Whitney U test
-  wilcox_test_result <- wilcox.test(medals ~ sex, data = data)
-  print("Mann-Whitney U test results:")
-  print(wilcox_test_result)
-}
-
-```
-
-
-```{r}
-# Remove rows with missing values in 'sex' or 'medals'
-data <- data[!is.na(data$sex) & !is.na(data$medal), ]
-
-# Convert medals to a factor if not already
-data$medals <- factor(data$medal, levels = c("did not win", "bronze", "silver", "gold"))
-
-# Create a contingency table
-medal_gender_table <- table(data$sex, data$medal)
-
-# Perform chi-square test
-chi_square_result <- chisq.test(medal_gender_table)
-
-# Print results
-print("Chi-Square Test Results:")
-print(chi_square_result)
-
-# Optional: Display the contingency table for reference
-print("Contingency Table:")
-print(medal_gender_table)
-
-ggplot(data, aes(x = medal, fill = sex)) +
-  geom_bar(position = "dodge") +
-  labs(title = "Distribution of Medals by Gender",
-       x = "Medal Type", y = "Count") +
-  theme_minimal()
-
-```
-
-
 
